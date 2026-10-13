@@ -1,7 +1,30 @@
+/**
+ * FILE: app/api/transactions/[id]/route.ts
+ * ROUTE: API: GET, PUT, DELETE /api/transactions/:id
+ *
+ * WHAT IT DOES: Works on ONE transaction, picked by the id in the URL.
+ * GET returns it (with its category), PUT updates it, DELETE removes it.
+ * WHERE IT FITS: GET and PUT are called by app/components/TransactionForm.tsx
+ * when used on the edit page app/dashboard/transactions/[id]/edit/page.tsx.
+ * DELETE is called from the list in app/dashboard/transactions/page.tsx.
+ * Uses getAuthenticatedUser(), findUserCategory / resolveAccountId
+ * (lib/api.ts) and the Expense model.
+ * WHY THIS CODE: Every handler first loads the transaction with BOTH its id
+ * AND the user's id. If it belongs to someone else, the answer is 404 "not
+ * found" — we don't even admit it exists. Only after that ownership check do
+ * we update or delete by id. The id from the URL is validated (400 if not a
+ * positive whole number). PUT keeps the old date/account/description when
+ * those fields are not sent.
+ *
+ * See PROJECT_GUIDE.md for the full project flow.
+ */
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAuthenticatedUser } from "@/lib/get-auth-user";
+import { findUserCategory, resolveAccountId } from "@/lib/api";
 
+// The second argument Next.js passes to handlers in a [id] folder.
+// In Next 16, params is a Promise, so we must `await params` to read the id.
 type Props = {
   params: Promise<{ id: string }>;
 };
@@ -12,6 +35,7 @@ export async function GET(
   { params }: Props
 ) {
   try {
+    // Auth check: no valid login cookie = 401 Unauthorized.
     const user = await getAuthenticatedUser();
 
     if (!user) {
@@ -21,6 +45,7 @@ export async function GET(
       );
     }
 
+    // Read the id from the URL and make sure it is a positive whole number.
     const { id } = await params;
     const transactionId = Number(id);
 
@@ -31,6 +56,8 @@ export async function GET(
       );
     }
 
+    // findFirst with id AND userId: returns nothing if the transaction belongs
+    // to another user, so they get a 404 just like a missing one.
     const transaction = await prisma.expense.findFirst({
       where: {
         id: transactionId,
@@ -50,6 +77,7 @@ export async function GET(
 
     return NextResponse.json(transaction);
   } catch (error) {
+    // Unexpected error: log on the server, generic 500 to the browser.
     console.error("GET transaction error:", error);
 
     return NextResponse.json(
@@ -65,6 +93,7 @@ export async function PUT(
   { params }: Props
 ) {
   try {
+    // Auth check: no valid login cookie = 401 Unauthorized.
     const user = await getAuthenticatedUser();
 
     if (!user) {
@@ -74,6 +103,7 @@ export async function PUT(
       );
     }
 
+    // Validate the id from the URL (must be a positive whole number).
     const { id } = await params;
     const transactionId = Number(id);
 
@@ -84,6 +114,8 @@ export async function PUT(
       );
     }
 
+    // Ownership check: load the transaction only if it belongs to this user.
+    // We also keep it to fall back on its old values for fields not sent.
     const existingTransaction = await prisma.expense.findFirst({
       where: {
         id: transactionId,
@@ -98,6 +130,7 @@ export async function PUT(
       );
     }
 
+    // Read the JSON body and normalise the main fields before validating them.
     const body = await request.json();
 
     const title =
@@ -107,6 +140,7 @@ export async function PUT(
     const categoryId = Number(body.categoryId);
     const type = body.type;
 
+    // Validation: each check returns 400 with a clear message so the form can show it.
     if (!title) {
       return NextResponse.json(
         { error: "Transaction title is required" },
@@ -135,9 +169,8 @@ export async function PUT(
       );
     }
 
-    const category = await prisma.category.findUnique({
-      where: { id: categoryId },
-    });
+    // The new category must be a shared default or one of this user's own.
+    const category = await findUserCategory(user.id, categoryId);
 
     if (!category) {
       return NextResponse.json(
@@ -146,6 +179,22 @@ export async function PUT(
       );
     }
 
+    // accountId not sent at all = keep the current account.
+    // Otherwise resolveAccountId gives null (no account), a valid id owned by
+    // this user, or undefined (invalid / someone else's account -> 404).
+    const accountId =
+      body.accountId === undefined
+        ? existingTransaction.accountId
+        : await resolveAccountId(user.id, body.accountId);
+
+    if (accountId === undefined) {
+      return NextResponse.json(
+        { error: "Account not found" },
+        { status: 404 }
+      );
+    }
+
+    // Date is optional on update: keep the old date unless a new, valid one is sent.
     let transactionDate = existingTransaction.date;
 
     if (body.date !== undefined) {
@@ -169,6 +218,7 @@ export async function PUT(
       }
     }
 
+    // Description may be missing, null, or text — anything else is rejected.
     if (
       body.description !== undefined &&
       body.description !== null &&
@@ -180,6 +230,10 @@ export async function PUT(
       );
     }
 
+    // Safe to update by id alone now, because we already confirmed above that
+    // this transaction belongs to the user.
+    // Description: text -> trimmed (empty becomes null); null -> cleared;
+    // not sent -> keep the existing description.
     const updatedTransaction = await prisma.expense.update({
       where: {
         id: transactionId,
@@ -189,6 +243,7 @@ export async function PUT(
         amount,
         type,
         categoryId,
+        accountId,
         date: transactionDate,
         description:
           typeof body.description === "string"
@@ -204,6 +259,7 @@ export async function PUT(
 
     return NextResponse.json(updatedTransaction);
   } catch (error) {
+    // Unexpected error: log on the server, generic 500 to the browser.
     console.error("PUT transaction error:", error);
 
     return NextResponse.json(
@@ -219,6 +275,7 @@ export async function DELETE(
   { params }: Props
 ) {
   try {
+    // Auth check: no valid login cookie = 401 Unauthorized.
     const user = await getAuthenticatedUser();
 
     if (!user) {
@@ -228,6 +285,7 @@ export async function DELETE(
       );
     }
 
+    // Validate the id from the URL (must be a positive whole number).
     const { id } = await params;
     const transactionId = Number(id);
 
@@ -238,6 +296,7 @@ export async function DELETE(
       );
     }
 
+    // Ownership check before deleting: the row must match this id AND this user.
     const existingTransaction = await prisma.expense.findFirst({
       where: {
         id: transactionId,
@@ -252,6 +311,7 @@ export async function DELETE(
       );
     }
 
+    // Now it's safe to delete by id.
     await prisma.expense.delete({
       where: {
         id: transactionId,
@@ -262,6 +322,7 @@ export async function DELETE(
       message: "Transaction deleted successfully",
     });
   } catch (error) {
+    // Unexpected error: log on the server, generic 500 to the browser.
     console.error("DELETE transaction error:", error);
 
     return NextResponse.json(

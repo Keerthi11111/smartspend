@@ -7,9 +7,28 @@ datasource db {
   provider = "postgresql"
 }
 
-enum TranactionType {
+enum TransactionType {
   INCOME
   EXPENSE
+}
+
+enum AccountType {
+  CASH
+  BANK
+  CARD
+  WALLET
+  OTHER
+}
+
+enum Frequency {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum DebtType {
+  LENT
+  BORROWED
 }
 
 model User {
@@ -19,33 +38,49 @@ model User {
   password  String
   createdAt DateTime @default(now())
 
-  expenses Expense[]
-  budgets  Budget[]
+  expenses   Expense[]
+  budgets    Budget[]
+  categories Category[]
+  accounts   Account[]
+  transfers  Transfer[]
+  goals      SavingsGoal[]
+  recurring  RecurringTransaction[]
+  debts      Debt[]
 }
 
+// userId null = default category shared by everyone
 model Category {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+  name      String
+  color     String   @default("#22d3ee")
   createdAt DateTime @default(now())
 
-  expenses Expense[]
-  budgets  Budget[]
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expenses  Expense[]
+  budgets   Budget[]
+  recurring RecurringTransaction[]
+
+  @@unique([userId, name])
 }
 
 model Expense {
-  id          Int            @id @default(autoincrement())
+  id          Int             @id @default(autoincrement())
   title       String
   amount      Float
-  type        TranactionType @default(EXPENSE)
+  type        TransactionType @default(EXPENSE)
   description String?
-  date        DateTime       @default(now())
-  createdAt   DateTime       @default(now())
+  date        DateTime        @default(now())
+  createdAt   DateTime        @default(now())
 
   userId     Int
   categoryId Int
+  accountId  Int?
 
   user     User     @relation(fields: [userId], references: [id])
   category Category @relation(fields: [categoryId], references: [id])
+  account  Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 }
 
 model Budget {
@@ -61,4 +96,88 @@ model Budget {
   category   Category @relation(fields: [categoryId], references: [id])
 
   @@unique([userId, categoryId, month, year])
+}
+
+model Account {
+  id             Int         @id @default(autoincrement())
+  name           String
+  type           AccountType @default(BANK)
+  openingBalance Float       @default(0)
+  color          String      @default("#22d3ee")
+  createdAt      DateTime    @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expenses     Expense[]
+  recurring    RecurringTransaction[]
+  transfersOut Transfer[]             @relation("TransferFrom")
+  transfersIn  Transfer[]             @relation("TransferTo")
+}
+
+model Transfer {
+  id        Int      @id @default(autoincrement())
+  amount    Float
+  note      String?
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  userId        Int
+  fromAccountId Int
+  toAccountId   Int
+
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccount Account @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: Cascade)
+  toAccount   Account @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: Cascade)
+}
+
+model SavingsGoal {
+  id           Int       @id @default(autoincrement())
+  name         String
+  targetAmount Float
+  savedAmount  Float     @default(0)
+  deadline     DateTime?
+  color        String    @default("#22d3ee")
+  createdAt    DateTime  @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Bills, subscriptions, salary... anything that repeats.
+// autoAdd items are posted as transactions automatically when due.
+model RecurringTransaction {
+  id        Int             @id @default(autoincrement())
+  title     String
+  amount    Float
+  type      TransactionType @default(EXPENSE)
+  frequency Frequency       @default(MONTHLY)
+  nextDate  DateTime
+  autoAdd   Boolean         @default(false)
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+
+  userId     Int
+  categoryId Int
+  accountId  Int?
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id])
+  account  Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+}
+
+model Debt {
+  id         Int       @id @default(autoincrement())
+  personName String
+  type       DebtType
+  amount     Float
+  paidAmount Float     @default(0)
+  note       String?
+  date       DateTime  @default(now())
+  dueDate    DateTime?
+  settledAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

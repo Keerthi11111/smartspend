@@ -131,7 +131,9 @@ exports.Prisma.UserScalarFieldEnum = {
 exports.Prisma.CategoryScalarFieldEnum = {
   id: 'id',
   name: 'name',
-  createdAt: 'createdAt'
+  color: 'color',
+  createdAt: 'createdAt',
+  userId: 'userId'
 };
 
 exports.Prisma.ExpenseScalarFieldEnum = {
@@ -143,7 +145,8 @@ exports.Prisma.ExpenseScalarFieldEnum = {
   date: 'date',
   createdAt: 'createdAt',
   userId: 'userId',
-  categoryId: 'categoryId'
+  categoryId: 'categoryId',
+  accountId: 'accountId'
 };
 
 exports.Prisma.BudgetScalarFieldEnum = {
@@ -154,6 +157,67 @@ exports.Prisma.BudgetScalarFieldEnum = {
   createdAt: 'createdAt',
   userId: 'userId',
   categoryId: 'categoryId'
+};
+
+exports.Prisma.AccountScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  type: 'type',
+  openingBalance: 'openingBalance',
+  color: 'color',
+  createdAt: 'createdAt',
+  userId: 'userId'
+};
+
+exports.Prisma.TransferScalarFieldEnum = {
+  id: 'id',
+  amount: 'amount',
+  note: 'note',
+  date: 'date',
+  createdAt: 'createdAt',
+  userId: 'userId',
+  fromAccountId: 'fromAccountId',
+  toAccountId: 'toAccountId'
+};
+
+exports.Prisma.SavingsGoalScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  targetAmount: 'targetAmount',
+  savedAmount: 'savedAmount',
+  deadline: 'deadline',
+  color: 'color',
+  createdAt: 'createdAt',
+  userId: 'userId'
+};
+
+exports.Prisma.RecurringTransactionScalarFieldEnum = {
+  id: 'id',
+  title: 'title',
+  amount: 'amount',
+  type: 'type',
+  frequency: 'frequency',
+  nextDate: 'nextDate',
+  autoAdd: 'autoAdd',
+  active: 'active',
+  createdAt: 'createdAt',
+  userId: 'userId',
+  categoryId: 'categoryId',
+  accountId: 'accountId'
+};
+
+exports.Prisma.DebtScalarFieldEnum = {
+  id: 'id',
+  personName: 'personName',
+  type: 'type',
+  amount: 'amount',
+  paidAmount: 'paidAmount',
+  note: 'note',
+  date: 'date',
+  dueDate: 'dueDate',
+  settledAt: 'settledAt',
+  createdAt: 'createdAt',
+  userId: 'userId'
 };
 
 exports.Prisma.SortOrder = {
@@ -170,16 +234,40 @@ exports.Prisma.NullsOrder = {
   first: 'first',
   last: 'last'
 };
-exports.TranactionType = exports.$Enums.TranactionType = {
+exports.TransactionType = exports.$Enums.TransactionType = {
   INCOME: 'INCOME',
   EXPENSE: 'EXPENSE'
+};
+
+exports.AccountType = exports.$Enums.AccountType = {
+  CASH: 'CASH',
+  BANK: 'BANK',
+  CARD: 'CARD',
+  WALLET: 'WALLET',
+  OTHER: 'OTHER'
+};
+
+exports.Frequency = exports.$Enums.Frequency = {
+  WEEKLY: 'WEEKLY',
+  MONTHLY: 'MONTHLY',
+  YEARLY: 'YEARLY'
+};
+
+exports.DebtType = exports.$Enums.DebtType = {
+  LENT: 'LENT',
+  BORROWED: 'BORROWED'
 };
 
 exports.Prisma.ModelName = {
   User: 'User',
   Category: 'Category',
   Expense: 'Expense',
-  Budget: 'Budget'
+  Budget: 'Budget',
+  Account: 'Account',
+  Transfer: 'Transfer',
+  SavingsGoal: 'SavingsGoal',
+  RecurringTransaction: 'RecurringTransaction',
+  Debt: 'Debt'
 };
 
 /**

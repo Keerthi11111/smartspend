@@ -1,10 +1,31 @@
+/*
+ * FILE: app/globals.css
+ * ROUTE: applies to every page (imported once by app/layout.tsx)
+ *
+ * WHAT IT DOES: Loads Tailwind CSS and defines the few global styles: color
+ * variables (with a dark-mode version), the font variables, and a custom
+ * `scrollbar-none` utility class.
+ * WHERE IT FITS: Imported in app/layout.tsx, so it loads on every page. It is compiled by
+ * PostCSS + the Tailwind plugin (postcss.config.mjs). Components style themselves
+ * with Tailwind class names in their JSX, not with separate CSS files.
+ * WHY THIS CODE: Tailwind v4 is configured in CSS (`@theme`, `@utility`) instead of a
+ * tailwind.config.js file. CSS variables let the theme change in one place.
+ *
+ * See PROJECT_GUIDE.md for the full project flow.
+ */
+
+/* Pulls in all of Tailwind (base reset + utility classes). */
 @import "tailwindcss";
 
+/* Light-mode colors as plain CSS variables. */
 :root {
   --background: #ffffff;
   --foreground: #171717;
 }
 
+/* Turns the variables into Tailwind theme values, so classes like `bg-background`,
+   `text-foreground` and `font-sans` / `font-mono` work. `inline` makes Tailwind use
+   the var() itself, so dark mode changes still apply. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -12,6 +33,7 @@
   --font-mono: var(--font-geist-mono);
 }
 
+/* Follow the operating system's dark-mode setting. */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -19,8 +41,23 @@
   }
 }
 
+/* Page defaults. Most pages override the background with Tailwind classes (e.g. bg-slate-950). */
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Scrollable without a visible scrollbar */
+/* Custom Tailwind utility: use `className="scrollbar-none"` (e.g. on sidebars or scrolling tab rows). */
+@utility scrollbar-none {
+  /* Firefox */
+  scrollbar-width: none;
+  /* Old Edge / Internet Explorer */
+  -ms-overflow-style: none;
+
+  /* Chrome, Safari and new Edge */
+  &::-webkit-scrollbar {
+    display: none;
+  }
 }

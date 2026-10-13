@@ -1,57 +1,130 @@
+// FILE: prisma/schema.prisma
+// ROUTE: n/a (database schema)
+//
+// WHAT IT DOES: Describes every database table (model), its columns (fields), the
+// links between tables (relations) and the fixed value lists (enums).
+// WHERE IT FITS: `npx prisma migrate dev` turns changes here into SQL files in
+// prisma/migrations/ and applies them to PostgreSQL. `npx prisma generate` builds the
+// typed client in generated/prisma/, which lib/prisma.ts imports and every API route
+// uses (prisma.expense.findMany(...), etc.).
+// WHY THIS CODE: One schema file is the single source of truth for the data. Prisma
+// gives type-safe queries from it. Almost every table has a `userId` so each row
+// belongs to exactly one user, and API routes always filter by it.
+// (Plain `//` comments are used on purpose. `///` comments would be copied into the
+// generated client.)
+//
+// See PROJECT_GUIDE.md for the full project flow.
+
+// Generates the Prisma Client into generated/prisma (imported by lib/prisma.ts).
 generator client {
   provider = "prisma-client-js"
   output   = "../generated/prisma"
 }
 
+// The database is PostgreSQL. The connection URL is not written here: in Prisma 7
+// it comes from prisma.config.ts (for the CLI) and the adapter in lib/prisma.ts (for the app).
 datasource db {
   provider = "postgresql"
 }
 
-enum TranactionType {
+// Whether an Expense / RecurringTransaction row is money in or money out.
+// (The "Expense" table stores BOTH kinds — this field tells them apart.)
+enum TransactionType {
   INCOME
   EXPENSE
 }
 
+// Kind of money account (shown as an icon/label on the Accounts page).
+enum AccountType {
+  CASH
+  BANK
+  CARD
+  WALLET
+  OTHER
+}
+
+// How often a RecurringTransaction repeats. lib/schedule.ts uses it to compute the next date.
+enum Frequency {
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+// LENT = someone owes you money; BORROWED = you owe someone.
+enum DebtType {
+  LENT
+  BORROWED
+}
+
+// A registered person who can log in.
 model User {
   id        Int      @id @default(autoincrement())
   name      String
-  email     String   @unique
-  password  String
+  email     String   @unique // @unique: two accounts can't share an email (also used to log in)
+  password  String   // bcrypt hash, never the plain password
   createdAt DateTime @default(now())
 
-  expenses Expense[]
-  budgets  Budget[]
+  // Reverse relations ("this user's rows"). They don't create columns. They let Prisma
+  // include or filter related data, e.g. prisma.user.findUnique({ include: { expenses: true } }).
+  expenses   Expense[]
+  budgets    Budget[]
+  categories Category[]
+  accounts   Account[]
+  transfers  Transfer[]
+  goals      SavingsGoal[]
+  recurring  RecurringTransaction[]
+  debts      Debt[]
 }
 
+// userId null = default category shared by everyone
+// Users can also create their own categories (userId set).
+// lib/api.ts visibleCategories() returns both kinds.
 model Category {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+  name      String
+  color     String   @default("#22d3ee") // hex color used in charts and badges
   createdAt DateTime @default(now())
 
-  expenses Expense[]
-  budgets  Budget[]
+  // Optional owner. onDelete: Cascade → deleting a user deletes their custom categories.
+  userId Int?
+  user   User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expenses  Expense[]
+  budgets   Budget[]
+  recurring RecurringTransaction[]
+
+  // A user can't have two categories with the same name.
+  @@unique([userId, name])
 }
 
+// One income OR expense entry (the "transactions" in the UI). The table name stays
+// "Expense" for history: it was created before income existed, and renaming it would
+// need a data migration.
 model Expense {
-  id          Int            @id @default(autoincrement())
+  id          Int             @id @default(autoincrement())
   title       String
-  amount      Float
-  type        TranactionType @default(EXPENSE)
-  description String?
-  date        DateTime       @default(now())
-  createdAt   DateTime       @default(now())
+  amount      Float           // always positive. `type` says if it's money in or out
+  type        TransactionType @default(EXPENSE)
+  description String?         // `?` = optional (NULL allowed)
+  date        DateTime        @default(now()) // when it happened (chosen by the user)
+  createdAt   DateTime        @default(now()) // when the row was saved
 
+  // Foreign keys: who owns it, which category, and (optionally) which account.
   userId     Int
   categoryId Int
+  accountId  Int?
 
   user     User     @relation(fields: [userId], references: [id])
   category Category @relation(fields: [categoryId], references: [id])
+  // SetNull: deleting an account keeps its transactions, just un-linked.
+  account  Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
 }
 
+// A spending limit for one category in one month.
 model Budget {
   id        Int      @id @default(autoincrement())
   amount    Float
-  month     Int
+  month     Int      // 1-12
   year      Int
   createdAt DateTime @default(now())
 
@@ -60,5 +133,100 @@ model Budget {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   category   Category @relation(fields: [categoryId], references: [id])
 
+  // Only one budget per user + category + month, so totals can't be counted twice.
   @@unique([userId, categoryId, month, year])
+}
+
+// A place money is kept (bank account, cash, credit card, wallet...).
+// The current balance is not stored. It is calculated as
+// openingBalance + income - expenses ± transfers, so it can never get out of sync.
+model Account {
+  id             Int         @id @default(autoincrement())
+  name           String
+  type           AccountType @default(BANK)
+  openingBalance Float       @default(0) // may be negative (e.g. a card with dues)
+  color          String      @default("#22d3ee")
+  createdAt      DateTime    @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expenses     Expense[]
+  recurring    RecurringTransaction[]
+  // Two relations point to Transfer, so each needs a name ("TransferFrom"/"TransferTo")
+  // to tell Prisma which foreign key belongs to which list.
+  transfersOut Transfer[]             @relation("TransferFrom")
+  transfersIn  Transfer[]             @relation("TransferTo")
+}
+
+// Moving money between two of the user's own accounts. It is NOT income or an
+// expense, so it is kept separate from the Expense table and doesn't distort reports.
+model Transfer {
+  id        Int      @id @default(autoincrement())
+  amount    Float
+  note      String?
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  userId        Int
+  fromAccountId Int
+  toAccountId   Int
+
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccount Account @relation("TransferFrom", fields: [fromAccountId], references: [id], onDelete: Cascade)
+  toAccount   Account @relation("TransferTo", fields: [toAccountId], references: [id], onDelete: Cascade)
+}
+
+// Something the user is saving towards. Progress = savedAmount / targetAmount.
+model SavingsGoal {
+  id           Int       @id @default(autoincrement())
+  name         String
+  targetAmount Float
+  savedAmount  Float     @default(0)
+  deadline     DateTime? // optional target date
+  color        String    @default("#22d3ee")
+  createdAt    DateTime  @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Bills, subscriptions, salary... anything that repeats.
+// autoAdd items are posted as transactions automatically when due.
+// (see lib/recurring.ts). Others are paid manually with "mark paid" on the Recurring page.
+model RecurringTransaction {
+  id        Int             @id @default(autoincrement())
+  title     String
+  amount    Float
+  type      TransactionType @default(EXPENSE)
+  frequency Frequency       @default(MONTHLY)
+  nextDate  DateTime        // next due date; moved forward each time it's posted/paid
+  autoAdd   Boolean         @default(false)
+  active    Boolean         @default(true) // paused items are ignored
+  createdAt DateTime        @default(now())
+
+  userId     Int
+  categoryId Int
+  accountId  Int?
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id])
+  account  Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+}
+
+// Money lent to or borrowed from a person, with repayments tracked in paidAmount.
+model Debt {
+  id         Int       @id @default(autoincrement())
+  personName String
+  type       DebtType
+  amount     Float
+  paidAmount Float     @default(0) // total repaid so far
+  note       String?
+  date       DateTime  @default(now())
+  dueDate    DateTime?
+  settledAt  DateTime? // set when fully repaid; null = still open
+  createdAt  DateTime  @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
