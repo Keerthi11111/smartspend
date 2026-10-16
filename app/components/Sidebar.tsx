@@ -25,6 +25,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
     BarChart3,
+    Bot,
     CalendarDays,
     CreditCard,
     HandCoins,
@@ -69,6 +70,7 @@ const menuSections = [
         title: "Insights",
         items: [
             { name: "Reports", href: "/dashboard/reports", icon: BarChart3 },
+            { name: "AI Assistant", href: "/dashboard/assistant", icon: Bot },
         ],
     },
     {
