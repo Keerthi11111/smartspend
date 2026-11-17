@@ -20,11 +20,9 @@
 
 import Link from "next/link";
 import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
     // Router for moving to another page after a successful login (no full reload).
-    const router = useRouter();
     // Form state: "controlled" inputs, so React always holds the current values.
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -66,7 +64,10 @@ export default function LoginPage() {
             // (must start with "/" but not "//", so ?next=//evil.com can't send users
             // to another website — an "open redirect" attack).
             const next = new URLSearchParams(window.location.search).get("next");
-            router.push(next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
+            // Full page load (not router.push): in production, Next prefetches /dashboard
+            // while logged out and caches the proxy's redirect to /login. A client-side
+            // push would reuse that stale redirect; a real navigation sends the new cookie.
+            window.location.assign(next?.startsWith("/") && !next.startsWith("//") ? next : "/dashboard");
         } catch {
             // Network failure or the response wasn't JSON.
             setError("Unexpected error occured");
